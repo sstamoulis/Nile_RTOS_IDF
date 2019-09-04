@@ -1,0 +1,6 @@
+{
+    "files.associations": {
+        "*.pde": "pde",
+        "esp_system.h": "c"
+    }
+}
