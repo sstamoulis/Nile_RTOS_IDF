@@ -7,8 +7,17 @@
 */
 
 #include <stdio.h>
+#include <time.h>
 
-#include "esp_system.h"
+#include <esp_system.h>
+#include <lwip/apps/sntp.h>
+#include <lwip/ip_addr.h>
+#include <esp_log.h>
+#include <nvs_flash.h>
+
+#include "wifi_connect.h"
+
+static const char *TAG = "AppMain";
 
 /******************************************************************************
  * FunctionName : app_main
@@ -18,5 +27,7 @@
 *******************************************************************************/
 void app_main(void)
 {
-    printf("SDK version:%s\n", esp_get_idf_version());
+    ESP_ERROR_CHECK(nvs_flash_init());
+    ESP_LOGI(TAG, "SDK version: %s\n", esp_get_idf_version());
+    wifi_init();
 }
