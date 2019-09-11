@@ -1,0 +1,5 @@
+BreakBeforeBraces: Attach
+UseTab: false
+IndentWidth: 4
+AllowShortIfStatementsOnASingleLine: true
+IndentCaseLabels: true

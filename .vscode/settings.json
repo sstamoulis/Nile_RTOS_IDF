@@ -1,6 +1,19 @@
 {
     "files.associations": {
         "*.pde": "pde",
-        "esp_system.h": "c"
-    }
+        "esp_system.h": "c",
+        "sntp.h": "c",
+        "ctime": "c",
+        "c++config.h": "c",
+        "esp_wifi.h": "c",
+        "sdkconfig.h": "c",
+        "wifi_connect.h": "c",
+        "esp_event.h": "c",
+        "err.h": "c",
+        "sys.h": "c",
+        "esp_event_loop.h": "c"
+    },
+    "editor.tabSize": 4,
+    "editor.insertSpaces": true,
+    "editor.detectIndentation": false
 }

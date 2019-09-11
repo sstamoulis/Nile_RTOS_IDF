@@ -7,7 +7,7 @@
                 "${env:IDF_PATH}/**",
                 "${env:IDF_PATH}/../toolchain/xtensa-lx106-elf/**"
             ],
-            "defines": [],
+            "defines": ["__ESP_FILE__=\"\""],
             "compilerPath": "/opt/esp/toolchain/xtensa-lx106-elf/bin/xtensa-lx106-elf-gcc",
             "cStandard": "c11",
             "cppStandard": "c++11",
