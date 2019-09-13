@@ -1,6 +1,7 @@
 #include "wifi_connect.h"
+#include "./http_server.h"
+#include "dns_server.h"
 #include <esp_event_loop.h>
-#include <esp_http_server.h>
 #include <esp_log.h>
 #include <esp_wifi.h>
 #include <freertos/event_groups.h>
@@ -11,6 +12,7 @@
 const static char *TAG = "wifi_connect";
 static EventGroupHandle_t wifi_event_group;
 const int WIFI_CONNECTED_BIT = BIT0;
+DNSServerWrap_t dnsServer;
 
 esp_err_t event_handler(void *ctx, system_event_t *event) {
     /* For accessing reason codes in case of disconnection */
@@ -38,7 +40,7 @@ esp_err_t event_handler(void *ctx, system_event_t *event) {
             xEventGroupClearBits(wifi_event_group, WIFI_CONNECTED_BIT);
             break;
         default:
-            ESP_LOGW(TAG, "Unhandled event: %d", event->event_id);
+            ESP_LOGI(TAG, "Unhandled event: %d", event->event_id);
             break;
     }
     return ESP_OK;
@@ -51,18 +53,6 @@ void get_ap_ssid(char *ssid) {
     snprintf(ssid, sizeof(((wifi_config_t *)0)->ap.ssid) + 1, AP_SSID_FORMAT,
              mac[3], mac[4], mac[5]);
 }
-
-static esp_err_t http_get_handler(httpd_req_t *req) {
-    httpd_resp_send(req, "Hello World!", -1);
-    return ESP_OK;
-}
-
-static const httpd_uri_t hello = {
-    .uri = "/",
-    .method = HTTP_GET,
-    .handler = http_get_handler,
-    .user_ctx = NULL,
-};
 
 void switch_to_wifi_configuration_mode() {
     char ssid[sizeof(((wifi_config_t *)0)->ap.ssid) + 1];
@@ -83,10 +73,11 @@ void switch_to_wifi_configuration_mode() {
     ESP_ERROR_CHECK(esp_wifi_start());
     ESP_LOGI(TAG, "Started AP: ssid=\"%s\", pass=\"%s\"", wifi_config.ap.ssid,
              wifi_config.ap.password);
-    httpd_handle_t server = NULL;
-    httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    ESP_ERROR_CHECK(httpd_start(&server, &config));
-    httpd_register_uri_handler(server, &hello);
+    http_server_start();
+    dnsServer = dns_server_init();
+    tcpip_adapter_ip_info_t ip_info;
+    tcpip_adapter_get_ip_info(ESP_IF_WIFI_AP, &ip_info);
+    dns_server_start(&dnsServer, 53, "*", &ip_info.ip);
 }
 
 void switch_to_wifi_connection_mode() {

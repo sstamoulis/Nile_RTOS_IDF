@@ -3,10 +3,9 @@
         {
             "name": "Linux",
             "includePath": [
-                "${workspaceFolder}/**",
-                "${env:IDF_PATH}/**",
-                "${env:IDF_PATH}/../toolchain/xtensa-lx106-elf/**"
+                
             ],
+            "compileCommands": "${workspaceFolder}/build/compile_commands.json",
             "defines": ["__ESP_FILE__=\"\""],
             "compilerPath": "/opt/esp/toolchain/xtensa-lx106-elf/bin/xtensa-lx106-elf-gcc",
             "cStandard": "c11",
