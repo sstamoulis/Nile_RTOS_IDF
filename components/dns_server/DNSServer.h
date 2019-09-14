@@ -1,6 +1,8 @@
 #ifndef DNSServer_h
 #define DNSServer_h
 // #include <WiFiUdp.h>
+#include <FreeRTOS.h>
+#include <freertos/task.h>
 #include <lwip/api.h>
 #include <lwip/ip_addr.h>
 #include <string>
@@ -73,7 +75,9 @@ class DNSServer {
     unsigned char _resolvedIP[4];
     uint32_t _ttl;
     DNSReplyCode _errorReplyCode;
+    TaskHandle_t _task;
 
+    static void task(void *parm);
     void downcaseAndRemoveWwwPrefix(std::string &domainName);
     void replyWithIP(DNSPacket *dnsPacket, unsigned char *query,
                      size_t queryLength);

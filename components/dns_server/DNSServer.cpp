@@ -9,9 +9,20 @@
 
 #define DNS_HEADER_SIZE sizeof(DNSHeader)
 
+static const char *TAG = "dns_server";
+
+void DNSServer::task(void *parm) {
+    DNSServer *server = (DNSServer *)parm;
+    for (;;) {
+        server->processNextRequest();
+    }
+    vTaskDelete(NULL);
+}
+
 DNSServer::DNSServer() {
     _ttl = lwip_htonl(60);
     _errorReplyCode = DNSReplyCode::NonExistentDomain;
+    _task = NULL;
 }
 
 bool DNSServer::start(const uint16_t &port, std::string &domainName,
@@ -24,8 +35,14 @@ bool DNSServer::start(const uint16_t &port, std::string &domainName,
     _resolvedIP[2] = ip4_addr3(&resolvedIP);
     _resolvedIP[3] = ip4_addr4(&resolvedIP);
     downcaseAndRemoveWwwPrefix(_domainName);
+    ESP_LOGI(TAG,
+             "Starting at port: %d, with domainName: %s and ip: %d.%d.%d.%d",
+             _port, _domainName.c_str(), _resolvedIP[0], _resolvedIP[1],
+             _resolvedIP[2], _resolvedIP[3]);
     _udp = netconn_new(NETCONN_UDP);
-    return netconn_bind(_udp, IP_ADDR_ANY, _port) == ERR_OK;
+    if (netconn_bind(_udp, IP_ADDR_ANY, _port) != ERR_OK) return false;
+    xTaskCreate(DNSServer::task, "DNS_SERVER_TASK", 1024, this, 9, &_task);
+    return true;
 }
 
 void DNSServer::setErrorReplyCode(const DNSReplyCode &replyCode) {
@@ -34,13 +51,19 @@ void DNSServer::setErrorReplyCode(const DNSReplyCode &replyCode) {
 
 void DNSServer::setTTL(const uint32_t &ttl) { _ttl = lwip_htonl(ttl); }
 
-void DNSServer::stop() { netconn_delete(_udp); }
+void DNSServer::stop() {
+    if (_task != NULL) {
+        vTaskDelete(_task);
+        _task = NULL;
+    }
+    netconn_delete(_udp);
+}
 
 void DNSServer::downcaseAndRemoveWwwPrefix(std::string &domainName) {
     for (char &c : domainName) {
         c = std::tolower(c);
     }
-    if (domainName.rfind("www.", 0) == std::string::npos) {
+    if (domainName.rfind("www.", 0) == 0) {
         domainName.erase(0, 4);
     }
 }
@@ -55,16 +78,26 @@ void DNSServer::respondToRequest(DNSPacket *dnsPacket, size_t length) {
     dnsHeader = dnsPacket->dnsHeader;
 
     // Must be a query for us to do anything with it
-    if (dnsHeader->QR != DNS_QR_QUERY) return;
+    if (dnsHeader->QR != DNS_QR_QUERY) {
+        ESP_LOGI(TAG, "Not a query, ignored request");
+        return;
+    }
 
     // If operation is anything other than query, we don't do it
-    if (dnsHeader->OPCode != DNS_OPCODE_QUERY)
+    if (dnsHeader->OPCode != DNS_OPCODE_QUERY) {
+        ESP_LOGI(
+            TAG,
+            "Operation %d is not a query, reply with not implemented error",
+            dnsHeader->OPCode);
         return replyWithError(dnsPacket, DNSReplyCode::NotImplemented);
+    }
 
     // Only support requests containing single queries - everything else
     // is badly defined
-    if (dnsHeader->QDCount != lwip_htons(1))
+    if (dnsHeader->QDCount != lwip_htons(1)) {
+        ESP_LOGI(TAG, "More than 1 queries are not supported");
         return replyWithError(dnsPacket, DNSReplyCode::FormError);
+    }
 
     // We must return a FormError in the case of a non-zero ARCount to
     // be minimally compatible with EDNS resolvers
@@ -99,6 +132,8 @@ void DNSServer::respondToRequest(DNSPacket *dnsPacket, size_t length) {
 
     queryLength = start - query;
 
+    ESP_LOGI(TAG, "Query: %s", query);
+
     if (qclass != lwip_htons(DNS_QCLASS_ANY) &&
         qclass != lwip_htons(DNS_QCLASS_IN))
         return replyWithError(dnsPacket, DNSReplyCode::NonExistentDomain, query,
@@ -113,7 +148,10 @@ void DNSServer::respondToRequest(DNSPacket *dnsPacket, size_t length) {
         return replyWithError(dnsPacket, _errorReplyCode, query, queryLength);
 
     // If we're running with a wildcard we can just return a result now
-    if (_domainName == "*") return replyWithIP(dnsPacket, query, queryLength);
+    if (_domainName == "*") {
+        ESP_LOGI(TAG, "Wildcard response");
+        return replyWithIP(dnsPacket, query, queryLength);
+    }
 
     matchString = _domainName.c_str();
 
@@ -170,6 +208,7 @@ void DNSServer::processNextRequest() {
     dnsPacket->addr = buf->addr;
     dnsPacket->port = buf->port;
     netbuf_free(buf);
+    ESP_LOGI(TAG, "Received DNS request");
     respondToRequest(dnsPacket, currentPacketSize);
 }
 
@@ -193,12 +232,15 @@ void DNSServer::replyWithIP(DNSPacket *dnsPacket, unsigned char *query,
     // _udp.write((unsigned char *)dnsHeader, sizeof(DNSHeader));
     // _udp.write(query, queryLength);
     netbuf *buf = netbuf_new();
-    netbuf_alloc(buf, DNS_HEADER_SIZE);
+    netbuf_alloc(buf, DNS_HEADER_SIZE + queryLength + 2 * 4 + sizeof(_ttl) +
+                          sizeof(_resolvedIP));
     u16_t offset = 0;
     pbuf_take(buf->p, dnsHeader, DNS_HEADER_SIZE);
     offset += DNS_HEADER_SIZE;
+    free(dnsHeader);
     pbuf_take_at(buf->p, query, queryLength, offset);
     offset += queryLength;
+    free(query);
     // Rather than restate the name here, we use a pointer to the name contained
     // in the query section. Pointers have the top two bits set.
     value = 0xC000 | DNS_HEADER_SIZE;
@@ -221,6 +263,8 @@ void DNSServer::replyWithIP(DNSPacket *dnsPacket, unsigned char *query,
     pbuf_take_at(buf->p, &_resolvedIP, sizeof(_resolvedIP), offset);
     // _udp.endPacket();
     netconn_sendto(_udp, buf, &dnsPacket->addr, dnsPacket->port);
+    netbuf_free(buf);
+    free(dnsPacket);
 }
 
 void DNSServer::replyWithError(DNSPacket *dnsPacket, DNSReplyCode rcode,
@@ -242,10 +286,13 @@ void DNSServer::replyWithError(DNSPacket *dnsPacket, DNSReplyCode rcode,
     // _udp.beginPacket(_udp.remoteIP(), _udp.remotePort());
     // _udp.endPacket();
     pbuf_take_at(buf->p, dnsHeader, DNS_HEADER_SIZE, 0);
+    free(dnsHeader);
     if (query != NULL)
         pbuf_take_at(buf->p, query, queryLength, DNS_HEADER_SIZE);
+    free(query);
     netconn_sendto(_udp, buf, &dnsPacket->addr, dnsPacket->port);
     netbuf_free(buf);
+    free(dnsPacket);
 }
 
 void DNSServer::replyWithError(DNSPacket *dnsPacket, DNSReplyCode rcode) {

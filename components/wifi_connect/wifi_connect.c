@@ -12,7 +12,7 @@
 const static char *TAG = "wifi_connect";
 static EventGroupHandle_t wifi_event_group;
 const int WIFI_CONNECTED_BIT = BIT0;
-DNSServerWrap_t dnsServer;
+DNSServer *dnsServer;
 
 esp_err_t event_handler(void *ctx, system_event_t *event) {
     /* For accessing reason codes in case of disconnection */
@@ -77,7 +77,7 @@ void switch_to_wifi_configuration_mode() {
     dnsServer = dns_server_init();
     tcpip_adapter_ip_info_t ip_info;
     tcpip_adapter_get_ip_info(ESP_IF_WIFI_AP, &ip_info);
-    dns_server_start(&dnsServer, 53, "*", &ip_info.ip);
+    dns_server_start(dnsServer, 53, "*", &ip_info.ip);
 }
 
 void switch_to_wifi_connection_mode() {
